@@ -137,6 +137,8 @@ stages:
         scriptLocation: inlineScript
         workingDirectory: $(terraformDirectory)
         inlineScript: |
+          set -e
+    
           terraform apply \
             -auto-approve \
             tfplan
@@ -146,17 +148,22 @@ stages:
     # --------------------------------------------------------
 
     - task: AzureCLI@2
-      displayName: Terraform Destroy
-      condition: eq('${{ parameters.terraformAction }}', 'destroy')
+      displayName: Cleanup Partial Terraform Deployment
+      condition: failed()
       inputs:
         azureSubscription: $(azureServiceConnection)
         scriptType: bash
         scriptLocation: inlineScript
         workingDirectory: $(terraformDirectory)
         inlineScript: |
+          echo "Terraform apply failed."
+          echo "Starting cleanup of resources created by Terraform..."
+    
           terraform destroy \
             -var-file="dev.tfvars" \
             -auto-approve
+    
+          echo "Cleanup completed."
 
 
 # ============================================================
