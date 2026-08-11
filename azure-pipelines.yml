@@ -47,18 +47,9 @@ stages:
     - bash: |
         set -e
     
-        TERRAFORM_VERSION="$(terraformVersion)"
-    
-        echo "Installing Terraform $TERRAFORM_VERSION"
-    
-        wget -q "https://releases.hashicorp.com/terraform/${TERRAFORM_VERSION}/terraform_${TERRAFORM_VERSION}_linux_amd64.zip"
-    
-        unzip -o "terraform_${TERRAFORM_VERSION}_linux_amd64.zip"
-    
-        sudo mv terraform /usr/local/bin/terraform
-    
+        echo "Checking Terraform..."
         terraform version
-      displayName: Installed Terraform
+      displayName: Check Terraform
 
     # --------------------------------------------------------
     # Azure Login
