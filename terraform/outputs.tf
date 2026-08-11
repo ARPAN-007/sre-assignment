@@ -25,3 +25,15 @@ output "application_insights_name" {
 output "key_vault_name" {
   value = azurerm_key_vault.sre_zeiss.name
 }
+
+output "container_app_name" {
+  value = azurerm_container_app.sre_zeiss.name
+}
+
+output "container_app_environment_name" {
+  value = azurerm_container_app_environment.sre_zeiss.name
+}
+
+output "container_app_url" {
+  value = azurerm_container_app.sre_zeiss.latest_revision_fqdn
+}

@@ -3,13 +3,316 @@ trigger:
     include:
       - main
 
+pr: none
+
+parameters:
+- name: terraformAction
+  displayName: Terraform Action
+  type: string
+  default: apply
+  values:
+    - apply
+    - destroy
+
 pool:
   vmImage: ubuntu-latest
 
-steps:
-  - checkout: self
+variables:
+  terraformVersion: '1.15.8'
+  terraformDirectory: 'terraform'
+  azureServiceConnection: 'azure-sre-assessment'
 
-  - script: |
-      echo "Azure DevOps pipeline triggered successfully!"
-      python --version
-    displayName: "Test pipeline"
+stages:
+
+# ============================================================
+# 1. TERRAFORM
+# ============================================================
+
+- stage: Terraform
+  displayName: Terraform Infrastructure
+
+  jobs:
+
+  - job: Terraform
+    displayName: Terraform
+
+    steps:
+
+    - checkout: self
+
+    # --------------------------------------------------------
+    # Install Terraform
+    # --------------------------------------------------------
+
+    - task: TerraformInstaller@1
+      displayName: Install Terraform
+      inputs:
+        terraformVersion: $(terraformVersion)
+
+    # --------------------------------------------------------
+    # Azure Login
+    # --------------------------------------------------------
+
+    - task: AzureCLI@2
+      displayName: Azure Login
+      inputs:
+        azureSubscription: $(azureServiceConnection)
+        scriptType: bash
+        scriptLocation: inlineScript
+        inlineScript: |
+          az account show
+
+    # --------------------------------------------------------
+    # Terraform Init
+    # --------------------------------------------------------
+
+    - task: AzureCLI@2
+      displayName: Terraform Init
+      inputs:
+        azureSubscription: $(azureServiceConnection)
+        scriptType: bash
+        scriptLocation: inlineScript
+        workingDirectory: $(terraformDirectory)
+        inlineScript: |
+          terraform init
+
+    # --------------------------------------------------------
+    # Terraform Validate
+    # --------------------------------------------------------
+
+    - task: AzureCLI@2
+      displayName: Terraform Validate
+      inputs:
+        azureSubscription: $(azureServiceConnection)
+        scriptType: bash
+        scriptLocation: inlineScript
+        workingDirectory: $(terraformDirectory)
+        inlineScript: |
+          terraform validate
+
+    # --------------------------------------------------------
+    # Terraform Plan
+    # --------------------------------------------------------
+
+    - task: AzureCLI@2
+      displayName: Terraform Plan
+      condition: eq('${{ parameters.terraformAction }}', 'apply')
+      inputs:
+        azureSubscription: $(azureServiceConnection)
+        scriptType: bash
+        scriptLocation: inlineScript
+        workingDirectory: $(terraformDirectory)
+        inlineScript: |
+          terraform plan \
+            -var-file="dev.tfvars" \
+            -out=tfplan
+
+    # --------------------------------------------------------
+    # Terraform Apply
+    # --------------------------------------------------------
+
+    - task: AzureCLI@2
+      displayName: Terraform Apply
+      condition: eq('${{ parameters.terraformAction }}', 'apply')
+      inputs:
+        azureSubscription: $(azureServiceConnection)
+        scriptType: bash
+        scriptLocation: inlineScript
+        workingDirectory: $(terraformDirectory)
+        inlineScript: |
+          terraform apply \
+            -auto-approve \
+            tfplan
+
+    # --------------------------------------------------------
+    # Terraform Destroy
+    # --------------------------------------------------------
+
+    - task: AzureCLI@2
+      displayName: Terraform Destroy
+      condition: eq('${{ parameters.terraformAction }}', 'destroy')
+      inputs:
+        azureSubscription: $(azureServiceConnection)
+        scriptType: bash
+        scriptLocation: inlineScript
+        workingDirectory: $(terraformDirectory)
+        inlineScript: |
+          terraform destroy \
+            -var-file="dev.tfvars" \
+            -auto-approve
+
+
+# ============================================================
+# 2. DOCKER BUILD + ACR PUSH
+# ============================================================
+
+- stage: BuildAndPush
+  displayName: Build and Push Docker Image
+  dependsOn: Terraform
+  condition: and(
+    succeeded(),
+    eq('${{ parameters.terraformAction }}', 'apply')
+
+  jobs:
+
+  - job: Docker
+    displayName: Build Docker Image
+
+    steps:
+
+    - checkout: self
+
+    # --------------------------------------------------------
+    # Azure Login
+    # --------------------------------------------------------
+
+    - task: AzureCLI@2
+      displayName: Login to Azure
+      inputs:
+        azureSubscription: $(azureServiceConnection)
+        scriptType: bash
+        scriptLocation: inlineScript
+        inlineScript: |
+
+          ACR_NAME=$(cd terraform && terraform output -raw acr_name)
+
+          echo "ACR: $ACR_NAME"
+
+          az acr login --name "$ACR_NAME"
+
+    # --------------------------------------------------------
+    # Get ACR Name
+    # --------------------------------------------------------
+
+    - task: AzureCLI@2
+      displayName: Get ACR Information
+      inputs:
+        azureSubscription: $(azureServiceConnection)
+        scriptType: bash
+        scriptLocation: inlineScript
+        inlineScript: |
+
+          ACR_NAME=$(cd terraform && terraform output -raw acr_name)
+
+          echo "##vso[task.setvariable variable=ACR_NAME]$ACR_NAME"
+
+          echo "ACR_NAME=$ACR_NAME"
+
+    # --------------------------------------------------------
+    # Build Docker Image
+    # --------------------------------------------------------
+
+    - task: AzureCLI@2
+      displayName: Docker Build
+      inputs:
+        azureSubscription: $(azureServiceConnection)
+        scriptType: bash
+        scriptLocation: inlineScript
+        inlineScript: |
+
+          ACR_NAME=$(cd terraform && terraform output -raw acr_name)
+
+          IMAGE_TAG=$(Build.BuildId)
+
+          docker build \
+            -t "$ACR_NAME.azurecr.io/sre-api:$IMAGE_TAG" \
+            .
+
+    # --------------------------------------------------------
+    # Push Docker Image
+    # --------------------------------------------------------
+
+    - task: AzureCLI@2
+      displayName: Docker Push
+      inputs:
+        azureSubscription: $(azureServiceConnection)
+        scriptType: bash
+        scriptLocation: inlineScript
+        inlineScript: |
+
+          ACR_NAME=$(cd terraform && terraform output -raw acr_name)
+
+          IMAGE_TAG=$(Build.BuildId)
+
+          az acr login --name "$ACR_NAME"
+
+          docker push \
+            "$ACR_NAME.azurecr.io/sre-api:$IMAGE_TAG"
+
+
+# ============================================================
+# 3. DEPLOY CONTAINER APP
+# ============================================================
+
+- stage: Deploy
+  displayName: Deploy FastAPI
+  dependsOn: BuildAndPush
+  condition: succeeded()
+
+  jobs:
+
+  - job: DeployContainerApp
+    displayName: Deploy Container App
+
+    steps:
+
+    - checkout: self
+
+    - task: AzureCLI@2
+      displayName: Deploy Container App
+      inputs:
+        azureSubscription: $(azureServiceConnection)
+        scriptType: bash
+        scriptLocation: inlineScript
+        inlineScript: |
+
+          ACR_NAME=$(cd terraform && terraform output -raw acr_name)
+
+          RESOURCE_GROUP=$(cd terraform && terraform output -raw resource_group_name)
+
+          CONTAINER_APP=$(cd terraform && terraform output -raw container_app_name)
+
+          IMAGE="$ACR_NAME.azurecr.io/sre-api:$(Build.BuildId)"
+
+          echo "Resource Group: $RESOURCE_GROUP"
+          echo "Container App: $CONTAINER_APP"
+          echo "Image: $IMAGE"
+
+          az containerapp update \
+            --name "$CONTAINER_APP" \
+            --resource-group "$RESOURCE_GROUP" \
+            --image "$IMAGE"
+
+          echo "Deployment completed."
+
+    # --------------------------------------------------------
+    # Get Application URL
+    # --------------------------------------------------------
+
+    - task: AzureCLI@2
+      displayName: Get Application URL
+      inputs:
+        azureSubscription: $(azureServiceConnection)
+        scriptType: bash
+        scriptLocation: inlineScript
+        inlineScript: |
+
+          RESOURCE_GROUP=$(cd terraform && terraform output -raw resource_group_name)
+
+          CONTAINER_APP=$(cd terraform && terraform output -raw container_app_name)
+
+          FQDN=$(az containerapp show \
+            --name "$CONTAINER_APP" \
+            --resource-group "$RESOURCE_GROUP" \
+            --query properties.configuration.ingress.fqdn \
+            --output tsv)
+
+          echo ""
+          echo "======================================"
+          echo " FastAPI Application"
+          echo "======================================"
+          echo "https://$FQDN"
+          echo ""
+          echo "Swagger:"
+          echo "https://$FQDN/docs"
+          echo "======================================"
