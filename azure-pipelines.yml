@@ -47,9 +47,24 @@ stages:
     - bash: |
         set -e
     
-        echo "Checking Terraform..."
-        terraform version
-      displayName: Check Terraform
+        TERRAFORM_VERSION="1.15.8"
+    
+        echo "Downloading Terraform ${TERRAFORM_VERSION}..."
+    
+        curl -fsSLO "https://releases.hashicorp.com/terraform/${TERRAFORM_VERSION}/terraform_${TERRAFORM_VERSION}_linux_amd64.zip"
+    
+        rm -rf terraform-bin
+        mkdir terraform-bin
+    
+        unzip -o "terraform_${TERRAFORM_VERSION}_linux_amd64.zip" -d terraform-bin
+    
+        chmod +x terraform-bin/terraform
+    
+        echo "Terraform installed:"
+        ./terraform-bin/terraform version
+    
+        echo "##vso[task.prependpath]$(pwd)/terraform-bin"
+      displayName: Install Terraform
 
     # --------------------------------------------------------
     # Azure Login
