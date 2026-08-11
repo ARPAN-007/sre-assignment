@@ -1,0 +1,15 @@
+trigger:
+  branches:
+    include:
+      - main
+
+pool:
+  vmImage: ubuntu-latest
+
+steps:
+  - checkout: self
+
+  - script: |
+      echo "Azure DevOps pipeline triggered successfully!"
+      python --version
+    displayName: "Test pipeline"
