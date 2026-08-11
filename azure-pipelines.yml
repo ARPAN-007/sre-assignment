@@ -58,7 +58,7 @@ stages:
         sudo mv terraform /usr/local/bin/terraform
     
         terraform version
-      displayName: Install Terraform
+      displayName: Installed Terraform
 
     # --------------------------------------------------------
     # Azure Login
