@@ -44,10 +44,21 @@ stages:
     # Install Terraform
     # --------------------------------------------------------
 
-    - task: TerraformInstaller@1
+    - bash: |
+        set -e
+    
+        TERRAFORM_VERSION="$(terraformVersion)"
+    
+        echo "Installing Terraform $TERRAFORM_VERSION"
+    
+        wget -q "https://releases.hashicorp.com/terraform/${TERRAFORM_VERSION}/terraform_${TERRAFORM_VERSION}_linux_amd64.zip"
+    
+        unzip -o "terraform_${TERRAFORM_VERSION}_linux_amd64.zip"
+    
+        sudo mv terraform /usr/local/bin/terraform
+    
+        terraform version
       displayName: Install Terraform
-      inputs:
-        terraformVersion: $(terraformVersion)
 
     # --------------------------------------------------------
     # Azure Login
