@@ -20,7 +20,7 @@ pool:
 variables:
   terraformVersion: '1.15.8'
   terraformWorkingDirectory: 'terraform'
-  azureServiceConnection: 'azure-sre-connection'
+  azureServiceConnection: 'azure-sre-assessment'
 
 stages:
 
