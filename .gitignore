@@ -1,13 +1,20 @@
+# Python
 .venv/
 __pycache__/
 *.pyc
+
+# IDE
 .idea/
 .vscode/
 
+# Terraform
 terraform/dev.tfvars
-terraform/.terraform/
-terraform/*.tfstate
-terraform/*.tfstate.*
-terraform/*.tfplan
+**/.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+crash.log
+crash.*.log
 
+# Environment
 .env
