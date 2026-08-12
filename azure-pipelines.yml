@@ -204,7 +204,9 @@ stages:
                 echo "=========================================="
                 echo "CREATING DESTROY PLAN"
                 echo "=========================================="
-
+              
+                SUBSCRIPTION_ID=$(az account show --query id -o tsv)
+              
                 terraform plan \
                   -destroy \
                   -input=false \
@@ -215,7 +217,9 @@ stages:
                 echo "=========================================="
                 echo "CREATING APPLY PLAN"
                 echo "=========================================="
-
+              
+                SUBSCRIPTION_ID=$(az account show --query id -o tsv)
+              
                 terraform plan \
                   -input=false \
                   -out=tfplan
