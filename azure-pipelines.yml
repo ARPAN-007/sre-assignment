@@ -20,15 +20,15 @@ pool:
 variables:
   terraformVersion: '1.15.8'
   terraformWorkingDirectory: 'terraform'
-  azureServiceConnection: 'azure-sre-assessment'
+  azureServiceConnection: 'azure-sre-connection'
 
 stages:
 
 # ============================================================
-# STAGE 1 - TERRAFORM VALIDATE
+# STAGE 1 - VALIDATE
 # ============================================================
 
-- stage: TerraformValidate
+- stage: Validate
   displayName: Terraform Validate
 
   jobs:
@@ -38,7 +38,6 @@ stages:
       steps:
 
         - checkout: self
-          displayName: Checkout repository
 
         # ----------------------------------------------------
         # Install Terraform
@@ -60,7 +59,7 @@ stages:
 
             unzip -o terraform.zip -d terraform-bin
 
-            sudo mv terraform-bin/terraform /usr/local/bin/terraform
+            sudo install terraform-bin/terraform /usr/local/bin/terraform
 
             terraform version
           displayName: Install Terraform
@@ -80,9 +79,11 @@ stages:
 
               cd "$(terraformWorkingDirectory)"
 
-              echo "Initializing Terraform backend..."
+              echo "Initializing Terraform with remote backend..."
 
-              terraform init -input=false
+              terraform init \
+                -input=false \
+                -reconfigure
 
         # ----------------------------------------------------
         # Terraform Format
@@ -92,6 +93,8 @@ stages:
             set -e
 
             cd "$(terraformWorkingDirectory)"
+
+            echo "Checking Terraform formatting..."
 
             terraform fmt -check -recursive
           displayName: Terraform Format Check
@@ -111,36 +114,29 @@ stages:
 
               cd "$(terraformWorkingDirectory)"
 
-              SUBSCRIPTION_ID=$(az account show --query id -o tsv)
-
-              echo "Azure Subscription: $SUBSCRIPTION_ID"
-
-              cat > pipeline.auto.tfvars <<EOF
-              subscription_id = "$SUBSCRIPTION_ID"
-              EOF
+              echo "Validating Terraform..."
 
               terraform validate
 
+
 # ============================================================
-# STAGE 2 - TERRAFORM PLAN
+# STAGE 2 - PLAN
 # ============================================================
 
-- stage: TerraformPlan
+- stage: Plan
   displayName: Terraform Plan
 
-  dependsOn:
-    - TerraformValidate
+  dependsOn: Validate
 
   condition: succeeded()
 
   jobs:
-    - job: PlanTerraform
+    - job: TerraformPlan
       displayName: Terraform Plan
 
       steps:
 
         - checkout: self
-          displayName: Checkout repository
 
         # ----------------------------------------------------
         # Install Terraform
@@ -162,7 +158,7 @@ stages:
 
             unzip -o terraform.zip -d terraform-bin
 
-            sudo mv terraform-bin/terraform /usr/local/bin/terraform
+            sudo install terraform-bin/terraform /usr/local/bin/terraform
 
             terraform version
           displayName: Install Terraform
@@ -182,32 +178,9 @@ stages:
 
               cd "$(terraformWorkingDirectory)"
 
-              echo "Initializing remote backend..."
-
-              terraform init -input=false
-
-        # ----------------------------------------------------
-        # Create Pipeline Variables
-        # ----------------------------------------------------
-
-        - task: AzureCLI@2
-          displayName: Prepare Terraform Variables
-          inputs:
-            azureSubscription: $(azureServiceConnection)
-            scriptType: bash
-            scriptLocation: inlineScript
-            inlineScript: |
-              set -e
-
-              cd "$(terraformWorkingDirectory)"
-
-              SUBSCRIPTION_ID=$(az account show --query id -o tsv)
-
-              echo "Azure Subscription: $SUBSCRIPTION_ID"
-
-              cat > pipeline.auto.tfvars <<EOF
-              subscription_id = "$SUBSCRIPTION_ID"
-              EOF
+              terraform init \
+                -input=false \
+                -reconfigure
 
         # ----------------------------------------------------
         # Terraform Plan
@@ -224,14 +197,13 @@ stages:
 
               cd "$(terraformWorkingDirectory)"
 
-              echo "=========================================="
-              echo "Terraform Action:"
-              echo "${{ parameters.terraformAction }}"
-              echo "=========================================="
+              echo "Terraform action: ${{ parameters.terraformAction }}"
 
               if [ "${{ parameters.terraformAction }}" = "destroy" ]; then
 
-                echo "Creating DESTROY plan..."
+                echo "=========================================="
+                echo "CREATING DESTROY PLAN"
+                echo "=========================================="
 
                 terraform plan \
                   -destroy \
@@ -240,7 +212,9 @@ stages:
 
               else
 
-                echo "Creating APPLY plan..."
+                echo "=========================================="
+                echo "CREATING APPLY PLAN"
+                echo "=========================================="
 
                 terraform plan \
                   -input=false \
@@ -249,7 +223,7 @@ stages:
               fi
 
         # ----------------------------------------------------
-        # Publish Terraform Plan
+        # Publish Plan
         # ----------------------------------------------------
 
         - task: PublishPipelineArtifact@1
@@ -258,26 +232,26 @@ stages:
             targetPath: '$(terraformWorkingDirectory)/tfplan'
             artifact: terraform-plan
 
+
 # ============================================================
-# STAGE 3 - TERRAFORM APPLY / DESTROY
+# STAGE 3 - TERRAFORM DEPLOY
 # ============================================================
 
 - stage: TerraformDeploy
   displayName: Terraform ${{ parameters.terraformAction }}
 
-  dependsOn:
-    - TerraformPlan
+  dependsOn: Plan
 
   condition: succeeded()
 
   jobs:
-    - job: DeployTerraform
+
+    - job: TerraformApply
       displayName: Terraform ${{ parameters.terraformAction }}
 
       steps:
 
         - checkout: self
-          displayName: Checkout repository
 
         # ----------------------------------------------------
         # Download Terraform Plan
@@ -309,7 +283,7 @@ stages:
 
             unzip -o terraform.zip -d terraform-bin
 
-            sudo mv terraform-bin/terraform /usr/local/bin/terraform
+            sudo install terraform-bin/terraform /usr/local/bin/terraform
 
             terraform version
           displayName: Install Terraform
@@ -331,28 +305,9 @@ stages:
 
               echo "Initializing remote Terraform backend..."
 
-              terraform init -input=false
-
-        # ----------------------------------------------------
-        # Create Variables
-        # ----------------------------------------------------
-
-        - task: AzureCLI@2
-          displayName: Prepare Terraform Variables
-          inputs:
-            azureSubscription: $(azureServiceConnection)
-            scriptType: bash
-            scriptLocation: inlineScript
-            inlineScript: |
-              set -e
-
-              cd "$(terraformWorkingDirectory)"
-
-              SUBSCRIPTION_ID=$(az account show --query id -o tsv)
-
-              cat > pipeline.auto.tfvars <<EOF
-              subscription_id = "$SUBSCRIPTION_ID"
-              EOF
+              terraform init \
+                -input=false \
+                -reconfigure
 
         # ----------------------------------------------------
         # Terraform Apply / Destroy
@@ -380,7 +335,7 @@ stages:
                 "$(Pipeline.Workspace)/terraform-plan/tfplan"
 
         # ----------------------------------------------------
-        # Terraform Outputs
+        # Terraform Output
         # ----------------------------------------------------
 
         - task: AzureCLI@2
@@ -401,21 +356,24 @@ stages:
 
               terraform output
 
+
 # ============================================================
-# STAGE 4 - BUILD AND PUSH DOCKER IMAGE
+# STAGE 4 - BUILD + PUSH DOCKER
 # ============================================================
 
 - stage: BuildAndPush
   displayName: Build and Push Docker Image
 
-  dependsOn:
-    - TerraformDeploy
+  dependsOn: TerraformDeploy
 
-  condition: and(
-    succeeded(),
-    eq('${{ parameters.terraformAction }}', 'apply'))
+  condition: |
+    and(
+      succeeded(),
+      eq('${{ parameters.terraformAction }}', 'apply')
+    )
 
   jobs:
+
     - job: Docker
       displayName: Build Docker Image
 
@@ -441,7 +399,7 @@ stages:
 
             unzip -o terraform.zip -d terraform-bin
 
-            sudo mv terraform-bin/terraform /usr/local/bin/terraform
+            sudo install terraform-bin/terraform /usr/local/bin/terraform
 
             terraform version
           displayName: Install Terraform
@@ -461,35 +419,16 @@ stages:
 
               cd "$(terraformWorkingDirectory)"
 
-              terraform init -input=false
+              terraform init \
+                -input=false \
+                -reconfigure
 
         # ----------------------------------------------------
-        # Create Variables
-        # ----------------------------------------------------
-
-        - task: AzureCLI@2
-          displayName: Prepare Terraform Variables
-          inputs:
-            azureSubscription: $(azureServiceConnection)
-            scriptType: bash
-            scriptLocation: inlineScript
-            inlineScript: |
-              set -e
-
-              cd "$(terraformWorkingDirectory)"
-
-              SUBSCRIPTION_ID=$(az account show --query id -o tsv)
-
-              cat > pipeline.auto.tfvars <<EOF
-              subscription_id = "$SUBSCRIPTION_ID"
-              EOF
-
-        # ----------------------------------------------------
-        # Build and Push
+        # Get ACR + Login
         # ----------------------------------------------------
 
         - task: AzureCLI@2
-          displayName: Build and Push Docker Image
+          displayName: Login to ACR
           inputs:
             azureSubscription: $(azureServiceConnection)
             scriptType: bash
@@ -501,25 +440,68 @@ stages:
 
               ACR_NAME=$(terraform output -raw acr_name)
 
-              echo "ACR: $ACR_NAME"
-
-              cd ..
-
-              IMAGE_TAG="$(Build.BuildId)"
-              IMAGE="$ACR_NAME.azurecr.io/sre-api:$IMAGE_TAG"
-
-              echo "Building image:"
-              echo "$IMAGE"
+              echo "ACR Name: $ACR_NAME"
 
               az acr login --name "$ACR_NAME"
+
+        # ----------------------------------------------------
+        # Build Docker Image
+        # ----------------------------------------------------
+
+        - task: AzureCLI@2
+          displayName: Docker Build
+          inputs:
+            azureSubscription: $(azureServiceConnection)
+            scriptType: bash
+            scriptLocation: inlineScript
+            inlineScript: |
+              set -e
+
+              cd "$(terraformWorkingDirectory)"
+
+              ACR_NAME=$(terraform output -raw acr_name)
+
+              IMAGE_TAG="$(Build.BuildId)"
+
+              IMAGE="$ACR_NAME.azurecr.io/sre-api:$IMAGE_TAG"
+
+              echo "Building:"
+              echo "$IMAGE"
+
+              cd ..
 
               docker build \
                 -t "$IMAGE" \
                 .
 
+        # ----------------------------------------------------
+        # Push Docker Image
+        # ----------------------------------------------------
+
+        - task: AzureCLI@2
+          displayName: Docker Push
+          inputs:
+            azureSubscription: $(azureServiceConnection)
+            scriptType: bash
+            scriptLocation: inlineScript
+            inlineScript: |
+              set -e
+
+              cd "$(terraformWorkingDirectory)"
+
+              ACR_NAME=$(terraform output -raw acr_name)
+
+              IMAGE_TAG="$(Build.BuildId)"
+
+              IMAGE="$ACR_NAME.azurecr.io/sre-api:$IMAGE_TAG"
+
+              echo "Pushing:"
+              echo "$IMAGE"
+
+              az acr login --name "$ACR_NAME"
+
               docker push "$IMAGE"
 
-              echo "Docker image pushed successfully."
 
 # ============================================================
 # STAGE 5 - DEPLOY CONTAINER APP
@@ -528,14 +510,14 @@ stages:
 - stage: ContainerAppDeploy
   displayName: Deploy Container App
 
-  dependsOn:
-    - BuildAndPush
+  dependsOn: BuildAndPush
 
   condition: succeeded()
 
   jobs:
+
     - job: DeployContainerApp
-      displayName: Deploy FastAPI Container App
+      displayName: Deploy Container App
 
       steps:
 
@@ -559,7 +541,7 @@ stages:
 
             unzip -o terraform.zip -d terraform-bin
 
-            sudo mv terraform-bin/terraform /usr/local/bin/terraform
+            sudo install terraform-bin/terraform /usr/local/bin/terraform
 
             terraform version
           displayName: Install Terraform
@@ -579,14 +561,16 @@ stages:
 
               cd "$(terraformWorkingDirectory)"
 
-              terraform init -input=false
+              terraform init \
+                -input=false \
+                -reconfigure
 
         # ----------------------------------------------------
         # Deploy Container App
         # ----------------------------------------------------
 
         - task: AzureCLI@2
-          displayName: Deploy Container App
+          displayName: Update Container App
           inputs:
             azureSubscription: $(azureServiceConnection)
             scriptType: bash
@@ -597,7 +581,9 @@ stages:
               cd "$(terraformWorkingDirectory)"
 
               ACR_NAME=$(terraform output -raw acr_name)
+
               RESOURCE_GROUP=$(terraform output -raw resource_group_name)
+
               CONTAINER_APP=$(terraform output -raw container_app_name)
 
               IMAGE="$ACR_NAME.azurecr.io/sre-api:$(Build.BuildId)"
@@ -605,10 +591,10 @@ stages:
               echo "=========================================="
               echo "Container App Deployment"
               echo "=========================================="
+
               echo "Resource Group: $RESOURCE_GROUP"
-              echo "Container App:  $CONTAINER_APP"
-              echo "Image:          $IMAGE"
-              echo "=========================================="
+              echo "Container App: $CONTAINER_APP"
+              echo "Image: $IMAGE"
 
               az containerapp update \
                 --name "$CONTAINER_APP" \
@@ -633,6 +619,7 @@ stages:
               cd "$(terraformWorkingDirectory)"
 
               RESOURCE_GROUP=$(terraform output -raw resource_group_name)
+
               CONTAINER_APP=$(terraform output -raw container_app_name)
 
               FQDN=$(az containerapp show \
@@ -643,10 +630,124 @@ stages:
 
               echo ""
               echo "=========================================="
-              echo " FastAPI Application"
+              echo "FastAPI Application"
               echo "=========================================="
               echo "https://$FQDN"
               echo ""
               echo "Swagger:"
               echo "https://$FQDN/docs"
               echo "=========================================="
+
+
+# ============================================================
+# STAGE 6 - AUTOMATIC CLEANUP
+#
+# If infrastructure/app deployment fails, destroy everything
+# managed by Terraform.
+# ============================================================
+
+- stage: Cleanup
+  displayName: Cleanup Failed Deployment
+
+  dependsOn:
+    - TerraformDeploy
+    - BuildAndPush
+    - ContainerAppDeploy
+
+  condition: |
+    or(
+      failed('TerraformDeploy'),
+      failed('BuildAndPush'),
+      failed('ContainerAppDeploy')
+    )
+
+  jobs:
+
+    - job: CleanupTerraform
+      displayName: Terraform Destroy Failed Deployment
+
+      steps:
+
+        - checkout: self
+
+        # ----------------------------------------------------
+        # Install Terraform
+        # ----------------------------------------------------
+
+        - bash: |
+            set -e
+
+            TERRAFORM_VERSION="$(terraformVersion)"
+
+            echo "Installing Terraform ${TERRAFORM_VERSION}"
+
+            curl -fsSL \
+              "https://releases.hashicorp.com/terraform/${TERRAFORM_VERSION}/terraform_${TERRAFORM_VERSION}_linux_amd64.zip" \
+              -o terraform.zip
+
+            rm -rf terraform-bin
+            mkdir terraform-bin
+
+            unzip -o terraform.zip -d terraform-bin
+
+            sudo install terraform-bin/terraform /usr/local/bin/terraform
+
+            terraform version
+          displayName: Install Terraform
+
+        # ----------------------------------------------------
+        # Terraform Init
+        # ----------------------------------------------------
+
+        - task: AzureCLI@2
+          displayName: Initialize Remote Backend
+          inputs:
+            azureSubscription: $(azureServiceConnection)
+            scriptType: bash
+            scriptLocation: inlineScript
+            inlineScript: |
+              set -e
+
+              cd "$(terraformWorkingDirectory)"
+
+              echo "=========================================="
+              echo "Initializing remote Terraform backend"
+              echo "=========================================="
+
+              terraform init \
+                -input=false \
+                -reconfigure
+
+        # ----------------------------------------------------
+        # Destroy Everything Terraform Knows
+        # ----------------------------------------------------
+
+        - task: AzureCLI@2
+          displayName: Cleanup Terraform Resources
+          inputs:
+            azureSubscription: $(azureServiceConnection)
+            scriptType: bash
+            scriptLocation: inlineScript
+            inlineScript: |
+              set -e
+
+              cd "$(terraformWorkingDirectory)"
+
+              echo "=========================================="
+              echo "AUTOMATIC CLEANUP"
+              echo "=========================================="
+
+              echo "Destroying all Terraform-managed resources..."
+
+              terraform destroy \
+                -input=false \
+                -auto-approve
+
+              echo "=========================================="
+              echo "Cleanup completed"
+              echo "=========================================="
+
+
+# ============================================================
+# END
+# ============================================================
