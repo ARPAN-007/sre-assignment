@@ -3,7 +3,7 @@ resource "azurerm_container_app_environment" "sre_zeiss" {
   location            = azurerm_resource_group.sre_zeiss.location
   resource_group_name = azurerm_resource_group.sre_zeiss.name
 
-  logs_destination         = "log-analytics"
+  logs_destination           = "log-analytics"
   log_analytics_workspace_id = azurerm_log_analytics_workspace.sre_zeiss.id
 }
 
@@ -45,7 +45,7 @@ resource "azurerm_container_app" "sre_zeiss" {
     target_port                = 8000
 
     traffic_weight {
-      percentage = 100
+      percentage      = 100
       latest_revision = true
     }
   }
