@@ -5,234 +5,364 @@ trigger:
 
 pr: none
 
+parameters:
+  - name: terraformAction
+    displayName: Terraform Action
+    type: string
+    default: apply
+    values:
+      - apply
+      - destroy
+
 pool:
   vmImage: ubuntu-latest
 
 variables:
   terraformVersion: '1.15.8'
   terraformWorkingDirectory: 'terraform'
+  azureServiceConnection: 'azure-sre-connection'
 
 stages:
 
 # ============================================================
-# STAGE 1 - TERRAFORM PLAN
+# STAGE 1 - TERRAFORM VALIDATE
 # ============================================================
-- stage: Plan
-  displayName: 'Terraform Plan'
+
+- stage: Validate
+  displayName: Terraform Validate
 
   jobs:
-  - job: TerraformPlan
-    displayName: 'Terraform Init and Plan'
+    - job: ValidateTerraform
+      displayName: Validate Terraform
 
-    steps:
+      steps:
 
-    # --------------------------------------------------------
-    # Azure authentication
-    # --------------------------------------------------------
-    - task: AzureCLI@2
-      displayName: 'Terraform Init and Plan'
-      inputs:
-        azureSubscription: 'YOUR-AZURE-SERVICE-CONNECTION'
-        scriptType: bash
-        scriptLocation: inlineScript
-        inlineScript: |
+        - checkout: self
+          displayName: Checkout repository
 
-          set -e
+        # ----------------------------------------------------
+        # Install Terraform
+        # ----------------------------------------------------
 
-          echo "======================================"
-          echo "Checking Azure authentication"
-          echo "======================================"
+        - bash: |
+            set -e
 
-          az account show
+            TERRAFORM_VERSION="$(terraformVersion)"
 
-          echo "======================================"
-          echo "Installing Terraform ${TF_VERSION}"
-          echo "======================================"
+            echo "Installing Terraform ${TERRAFORM_VERSION}"
 
-          TF_VERSION="${TF_VERSION}"
+            curl -fsSL \
+              "https://releases.hashicorp.com/terraform/${TERRAFORM_VERSION}/terraform_${TERRAFORM_VERSION}_linux_amd64.zip" \
+              -o terraform.zip
 
-          curl -fsSL \
-            "https://releases.hashicorp.com/terraform/${TF_VERSION}/terraform_${TF_VERSION}_linux_amd64.zip" \
-            -o terraform.zip
+            rm -rf terraform-bin
+            mkdir terraform-bin
 
-          unzip -o terraform.zip
+            unzip -o terraform.zip -d terraform-bin
 
-          sudo rm -f /usr/local/bin/terraform
-          sudo mv terraform /usr/local/bin/terraform
+            sudo mv terraform-bin/terraform /usr/local/bin/terraform
 
-          terraform version
+            terraform version
+          displayName: Install Terraform
 
-          echo "======================================"
-          echo "Terraform Init"
-          echo "======================================"
+        # ----------------------------------------------------
+        # Terraform Init
+        # ----------------------------------------------------
 
-          cd "$(Build.SourcesDirectory)/${TF_WORKING_DIR}"
+        - task: AzureCLI@2
+          displayName: Terraform Init
+          inputs:
+            azureSubscription: $(azureServiceConnection)
+            scriptType: bash
+            scriptLocation: inlineScript
+            inlineScript: |
+              set -e
 
-          terraform init -reconfigure
+              cd "$(terraformWorkingDirectory)"
 
-          echo "======================================"
-          echo "Terraform Plan"
-          echo "======================================"
+              echo "Initializing Terraform..."
 
-          terraform plan \
-            -var-file="dev.tfvars" \
-            -out=tfplan
+              terraform init -input=false
 
-          echo "Terraform plan completed successfully."
+        # ----------------------------------------------------
+        # Terraform Format Check
+        # ----------------------------------------------------
 
-      env:
-        TF_VERSION: $(terraformVersion)
-        TF_WORKING_DIR: $(terraformWorkingDirectory)
+        - bash: |
+            set -e
+
+            cd "$(terraformWorkingDirectory)"
+
+            terraform fmt -check -recursive
+          displayName: Terraform Format Check
+
+        # ----------------------------------------------------
+        # Terraform Validate
+        # ----------------------------------------------------
+
+        - task: AzureCLI@2
+          displayName: Terraform Validate
+          inputs:
+            azureSubscription: $(azureServiceConnection)
+            scriptType: bash
+            scriptLocation: inlineScript
+            inlineScript: |
+              set -e
+
+              cd "$(terraformWorkingDirectory)"
+
+              terraform validate
 
 
 # ============================================================
-# STAGE 2 - TERRAFORM APPLY
+# STAGE 2 - TERRAFORM PLAN
 # ============================================================
-- stage: Apply
-  displayName: 'Terraform Apply'
+
+- stage: Plan
+  displayName: Terraform Plan
+
+  dependsOn: Validate
+
+  condition: succeeded()
+
+  jobs:
+    - job: TerraformPlan
+      displayName: Terraform Plan
+
+      steps:
+
+        - checkout: self
+
+        # ----------------------------------------------------
+        # Install Terraform
+        # ----------------------------------------------------
+
+        - bash: |
+            set -e
+
+            TERRAFORM_VERSION="$(terraformVersion)"
+
+            echo "Installing Terraform ${TERRAFORM_VERSION}"
+
+            curl -fsSL \
+              "https://releases.hashicorp.com/terraform/${TERRAFORM_VERSION}/terraform_${TERRAFORM_VERSION}_linux_amd64.zip" \
+              -o terraform.zip
+
+            rm -rf terraform-bin
+            mkdir terraform-bin
+
+            unzip -o terraform.zip -d terraform-bin
+
+            sudo mv terraform-bin/terraform /usr/local/bin/terraform
+
+            terraform version
+          displayName: Install Terraform
+
+        # ----------------------------------------------------
+        # Terraform Init
+        # ----------------------------------------------------
+
+        - task: AzureCLI@2
+          displayName: Terraform Init
+          inputs:
+            azureSubscription: $(azureServiceConnection)
+            scriptType: bash
+            scriptLocation: inlineScript
+            inlineScript: |
+              set -e
+
+              cd "$(terraformWorkingDirectory)"
+
+              terraform init -input=false
+
+        # ----------------------------------------------------
+        # Terraform Plan
+        # ----------------------------------------------------
+
+        - task: AzureCLI@2
+          displayName: Terraform Plan
+          inputs:
+            azureSubscription: $(azureServiceConnection)
+            scriptType: bash
+            scriptLocation: inlineScript
+            inlineScript: |
+              set -e
+
+              cd "$(terraformWorkingDirectory)"
+
+              echo "Terraform action: ${{ parameters.terraformAction }}"
+
+              if [ "${{ parameters.terraformAction }}" = "destroy" ]; then
+
+                echo "Creating DESTROY plan..."
+
+                terraform plan \
+                  -destroy \
+                  -input=false \
+                  -out=tfplan
+
+              else
+
+                echo "Creating APPLY plan..."
+
+                terraform plan \
+                  -input=false \
+                  -out=tfplan
+
+              fi
+
+        # ----------------------------------------------------
+        # Publish Terraform Plan
+        # ----------------------------------------------------
+
+        - task: PublishPipelineArtifact@1
+          displayName: Publish Terraform Plan
+          inputs:
+            targetPath: '$(terraformWorkingDirectory)/tfplan'
+            artifact: terraform-plan
+
+
+# ============================================================
+# STAGE 3 - TERRAFORM APPLY / DESTROY
+# ============================================================
+
+- stage: Deploy
+  displayName: Terraform Deploy
 
   dependsOn: Plan
 
   condition: succeeded()
 
   jobs:
-  - deployment: TerraformApply
-    displayName: 'Terraform Apply'
+    - deployment: TerraformDeploy
+      displayName: Terraform ${{ parameters.terraformAction }}
 
-    environment: 'sre-assignment-dev'
+      environment: sre-terraform
 
-    strategy:
-      runOnce:
-        deploy:
+      strategy:
+        runOnce:
+          deploy:
 
-          steps:
+            steps:
 
-          - task: AzureCLI@2
-            displayName: 'Terraform Apply'
-            inputs:
-              azureSubscription: 'YOUR-AZURE-SERVICE-CONNECTION'
-              scriptType: bash
-              scriptLocation: inlineScript
+              - checkout: self
 
-              inlineScript: |
+              # ------------------------------------------------
+              # Download Terraform Plan
+              # ------------------------------------------------
 
-                set -e
+              - task: DownloadPipelineArtifact@2
+                displayName: Download Terraform Plan
+                inputs:
+                  artifact: terraform-plan
+                  path: '$(Pipeline.Workspace)/terraform-plan'
 
-                echo "======================================"
-                echo "Installing Terraform"
-                echo "======================================"
+              # ------------------------------------------------
+              # Install Terraform
+              # ------------------------------------------------
 
-                TF_VERSION="${TF_VERSION}"
+              - bash: |
+                  set -e
 
-                curl -fsSL \
-                  "https://releases.hashicorp.com/terraform/${TF_VERSION}/terraform_${TF_VERSION}_linux_amd64.zip" \
-                  -o terraform.zip
+                  TERRAFORM_VERSION="$(terraformVersion)"
 
-                unzip -o terraform.zip
+                  echo "Installing Terraform ${TERRAFORM_VERSION}"
 
-                sudo rm -f /usr/local/bin/terraform
-                sudo mv terraform /usr/local/bin/terraform
+                  curl -fsSL \
+                    "https://releases.hashicorp.com/terraform/${TERRAFORM_VERSION}/terraform_${TERRAFORM_VERSION}_linux_amd64.zip" \
+                    -o terraform.zip
 
-                terraform version
+                  rm -rf terraform-bin
+                  mkdir terraform-bin
 
-                cd "$(Build.SourcesDirectory)/${TF_WORKING_DIR}"
+                  unzip -o terraform.zip -d terraform-bin
 
-                echo "======================================"
-                echo "Terraform Init"
-                echo "======================================"
+                  sudo mv terraform-bin/terraform /usr/local/bin/terraform
 
-                terraform init -reconfigure
+                  terraform version
+                displayName: Install Terraform
 
-                echo "======================================"
-                echo "Terraform Apply"
-                echo "======================================"
+              # ------------------------------------------------
+              # Terraform Init
+              # ------------------------------------------------
 
-                terraform apply \
-                  -auto-approve \
-                  -var-file="dev.tfvars"
+              - task: AzureCLI@2
+                displayName: Terraform Init
+                inputs:
+                  azureSubscription: $(azureServiceConnection)
+                  scriptType: bash
+                  scriptLocation: inlineScript
+                  inlineScript: |
+                    set -e
 
-                echo "======================================"
-                echo "Terraform Apply Completed"
-                echo "======================================"
+                    cd "$(terraformWorkingDirectory)"
 
-            env:
-              TF_VERSION: $(terraformVersion)
-              TF_WORKING_DIR: $(terraformWorkingDirectory)
+                    echo "Initializing remote Terraform backend..."
 
+                    terraform init -input=false
 
-# ============================================================
-# STAGE 3 - CLEANUP ON FAILED APPLY
-# ============================================================
-- stage: Cleanup
-  displayName: 'Cleanup Partial Terraform Deployment'
+              # ------------------------------------------------
+              # Terraform Apply / Destroy
+              # ------------------------------------------------
 
-  dependsOn: Apply
+              - task: AzureCLI@2
+                displayName: Terraform ${{ parameters.terraformAction }}
+                inputs:
+                  azureSubscription: $(azureServiceConnection)
+                  scriptType: bash
+                  scriptLocation: inlineScript
+                  inlineScript: |
 
-  condition: failed()
+                    set -e
 
-  jobs:
-  - job: TerraformCleanup
-    displayName: 'Destroy Partial Deployment'
+                    cd "$(terraformWorkingDirectory)"
 
-    steps:
+                    echo "=========================================="
+                    echo "Terraform Action:"
+                    echo "${{ parameters.terraformAction }}"
+                    echo "=========================================="
 
-    - task: AzureCLI@2
-      displayName: 'Terraform Destroy Partial Deployment'
-      inputs:
-        azureSubscription: 'YOUR-AZURE-SERVICE-CONNECTION'
-        scriptType: bash
-        scriptLocation: inlineScript
+                    if [ "${{ parameters.terraformAction }}" = "destroy" ]; then
 
-        inlineScript: |
+                      echo "Executing Terraform DESTROY..."
 
-          set -e
+                      terraform apply \
+                        -input=false \
+                        -auto-approve \
+                        tfplan
 
-          echo "======================================"
-          echo "Installing Terraform"
-          echo "======================================"
+                    else
 
-          TF_VERSION="${TF_VERSION}"
+                      echo "Executing Terraform APPLY..."
 
-          curl -fsSL \
-            "https://releases.hashicorp.com/terraform/${TF_VERSION}/terraform_${TF_VERSION}_linux_amd64.zip" \
-            -o terraform.zip
+                      terraform apply \
+                        -input=false \
+                        -auto-approve \
+                        tfplan
 
-          unzip -o terraform.zip
+                    fi
 
-          sudo rm -f /usr/local/bin/terraform
-          sudo mv terraform /usr/local/bin/terraform
+              # ------------------------------------------------
+              # Terraform Output
+              # ------------------------------------------------
 
-          terraform version
+              - task: AzureCLI@2
+                displayName: Terraform Output
+                condition: succeeded()
+                inputs:
+                  azureSubscription: $(azureServiceConnection)
+                  scriptType: bash
+                  scriptLocation: inlineScript
+                  inlineScript: |
+                    set -e
 
-          cd "$(Build.SourcesDirectory)/${TF_WORKING_DIR}"
+                    cd "$(terraformWorkingDirectory)"
 
-          echo "======================================"
-          echo "Terraform Init"
-          echo "======================================"
+                    echo "=========================================="
+                    echo "Terraform Outputs"
+                    echo "=========================================="
 
-          terraform init -reconfigure
-
-          echo "======================================"
-          echo "Terraform State"
-          echo "======================================"
-
-          terraform state list || true
-
-          echo "======================================"
-          echo "Destroying Resources From State"
-          echo "======================================"
-
-          terraform destroy \
-            -auto-approve \
-            -var-file="dev.tfvars"
-
-          echo "======================================"
-          echo "Cleanup Completed"
-          echo "======================================"
-
-      env:
-        TF_VERSION: $(terraformVersion)
-        TF_WORKING_DIR: $(terraformWorkingDirectory)
+                    terraform output
 
 
 # ============================================================
