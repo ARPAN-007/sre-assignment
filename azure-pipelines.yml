@@ -413,8 +413,7 @@ stages:
 
   condition: and(
     succeeded(),
-    eq('${{ parameters.terraformAction }}', 'apply')
-  )
+    eq('${{ parameters.terraformAction }}', 'apply'))
 
   jobs:
     - job: Docker
