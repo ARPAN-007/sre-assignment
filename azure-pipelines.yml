@@ -79,7 +79,7 @@ stages:
 
               cd "$(terraformWorkingDirectory)"
 
-              echo "Initializing Terraform with remote backend..."
+              echo "Initializing remote Terraform backend..."
 
               terraform init \
                 -input=false \
@@ -114,7 +114,9 @@ stages:
 
               cd "$(terraformWorkingDirectory)"
 
-              echo "Validating Terraform..."
+              export TF_VAR_subscription_id=$(az account show --query id -o tsv)
+
+              echo "Subscription ID: $TF_VAR_subscription_id"
 
               terraform validate
 
@@ -197,6 +199,10 @@ stages:
 
               cd "$(terraformWorkingDirectory)"
 
+              export TF_VAR_subscription_id=$(az account show --query id -o tsv)
+
+              echo "Subscription ID: $TF_VAR_subscription_id"
+
               echo "Terraform action: ${{ parameters.terraformAction }}"
 
               if [ "${{ parameters.terraformAction }}" = "destroy" ]; then
@@ -204,9 +210,7 @@ stages:
                 echo "=========================================="
                 echo "CREATING DESTROY PLAN"
                 echo "=========================================="
-              
-                SUBSCRIPTION_ID=$(az account show --query id -o tsv)
-              
+
                 terraform plan \
                   -destroy \
                   -input=false \
@@ -217,9 +221,7 @@ stages:
                 echo "=========================================="
                 echo "CREATING APPLY PLAN"
                 echo "=========================================="
-              
-                SUBSCRIPTION_ID=$(az account show --query id -o tsv)
-              
+
                 terraform plan \
                   -input=false \
                   -out=tfplan
@@ -238,7 +240,7 @@ stages:
 
 
 # ============================================================
-# STAGE 3 - TERRAFORM DEPLOY
+# STAGE 3 - TERRAFORM APPLY / DESTROY
 # ============================================================
 
 - stage: TerraformDeploy
@@ -249,7 +251,6 @@ stages:
   condition: succeeded()
 
   jobs:
-
     - job: TerraformApply
       displayName: Terraform ${{ parameters.terraformAction }}
 
@@ -307,8 +308,6 @@ stages:
 
               cd "$(terraformWorkingDirectory)"
 
-              echo "Initializing remote Terraform backend..."
-
               terraform init \
                 -input=false \
                 -reconfigure
@@ -328,10 +327,16 @@ stages:
 
               cd "$(terraformWorkingDirectory)"
 
+              export TF_VAR_subscription_id=$(az account show --query id -o tsv)
+
               echo "=========================================="
-              echo "Terraform Action:"
+              echo "Terraform Action"
+              echo "=========================================="
+
               echo "${{ parameters.terraformAction }}"
-              echo "=========================================="
+
+              echo "Subscription ID:"
+              echo "$TF_VAR_subscription_id"
 
               terraform apply \
                 -input=false \
@@ -354,15 +359,12 @@ stages:
 
               cd "$(terraformWorkingDirectory)"
 
-              echo "=========================================="
-              echo "Terraform Outputs"
-              echo "=========================================="
-
               terraform output
 
 
 # ============================================================
 # STAGE 4 - BUILD + PUSH DOCKER
+# ONLY FOR APPLY
 # ============================================================
 
 - stage: BuildAndPush
@@ -377,7 +379,6 @@ stages:
     )
 
   jobs:
-
     - job: Docker
       displayName: Build Docker Image
 
@@ -428,11 +429,11 @@ stages:
                 -reconfigure
 
         # ----------------------------------------------------
-        # Get ACR + Login
+        # Build + Push
         # ----------------------------------------------------
 
         - task: AzureCLI@2
-          displayName: Login to ACR
+          displayName: Build and Push Docker Image
           inputs:
             azureSubscription: $(azureServiceConnection)
             scriptType: bash
@@ -441,6 +442,8 @@ stages:
               set -e
 
               cd "$(terraformWorkingDirectory)"
+
+              export TF_VAR_subscription_id=$(az account show --query id -o tsv)
 
               ACR_NAME=$(terraform output -raw acr_name)
 
@@ -448,67 +451,27 @@ stages:
 
               az acr login --name "$ACR_NAME"
 
-        # ----------------------------------------------------
-        # Build Docker Image
-        # ----------------------------------------------------
-
-        - task: AzureCLI@2
-          displayName: Docker Build
-          inputs:
-            azureSubscription: $(azureServiceConnection)
-            scriptType: bash
-            scriptLocation: inlineScript
-            inlineScript: |
-              set -e
-
-              cd "$(terraformWorkingDirectory)"
-
-              ACR_NAME=$(terraform output -raw acr_name)
-
               IMAGE_TAG="$(Build.BuildId)"
 
               IMAGE="$ACR_NAME.azurecr.io/sre-api:$IMAGE_TAG"
 
-              echo "Building:"
-              echo "$IMAGE"
-
               cd ..
+
+              echo "Building image:"
+              echo "$IMAGE"
 
               docker build \
                 -t "$IMAGE" \
                 .
 
-        # ----------------------------------------------------
-        # Push Docker Image
-        # ----------------------------------------------------
-
-        - task: AzureCLI@2
-          displayName: Docker Push
-          inputs:
-            azureSubscription: $(azureServiceConnection)
-            scriptType: bash
-            scriptLocation: inlineScript
-            inlineScript: |
-              set -e
-
-              cd "$(terraformWorkingDirectory)"
-
-              ACR_NAME=$(terraform output -raw acr_name)
-
-              IMAGE_TAG="$(Build.BuildId)"
-
-              IMAGE="$ACR_NAME.azurecr.io/sre-api:$IMAGE_TAG"
-
-              echo "Pushing:"
-              echo "$IMAGE"
-
-              az acr login --name "$ACR_NAME"
+              echo "Pushing image:"
 
               docker push "$IMAGE"
 
 
 # ============================================================
 # STAGE 5 - DEPLOY CONTAINER APP
+# ONLY FOR APPLY
 # ============================================================
 
 - stage: ContainerAppDeploy
@@ -516,10 +479,13 @@ stages:
 
   dependsOn: BuildAndPush
 
-  condition: succeeded()
+  condition: |
+    and(
+      succeeded(),
+      eq('${{ parameters.terraformAction }}', 'apply')
+    )
 
   jobs:
-
     - job: DeployContainerApp
       displayName: Deploy Container App
 
@@ -584,17 +550,13 @@ stages:
 
               cd "$(terraformWorkingDirectory)"
 
+              export TF_VAR_subscription_id=$(az account show --query id -o tsv)
+
               ACR_NAME=$(terraform output -raw acr_name)
-
               RESOURCE_GROUP=$(terraform output -raw resource_group_name)
-
               CONTAINER_APP=$(terraform output -raw container_app_name)
 
               IMAGE="$ACR_NAME.azurecr.io/sre-api:$(Build.BuildId)"
-
-              echo "=========================================="
-              echo "Container App Deployment"
-              echo "=========================================="
 
               echo "Resource Group: $RESOURCE_GROUP"
               echo "Container App: $CONTAINER_APP"
@@ -623,7 +585,6 @@ stages:
               cd "$(terraformWorkingDirectory)"
 
               RESOURCE_GROUP=$(terraform output -raw resource_group_name)
-
               CONTAINER_APP=$(terraform output -raw container_app_name)
 
               FQDN=$(az containerapp show \
@@ -646,8 +607,13 @@ stages:
 # ============================================================
 # STAGE 6 - AUTOMATIC CLEANUP
 #
-# If infrastructure/app deployment fails, destroy everything
-# managed by Terraform.
+# Runs when:
+# Terraform Apply fails
+# Docker Build/Push fails
+# Container App deployment fails
+#
+# Uses REMOTE STATE to destroy resources that were successfully
+# recorded before the failure.
 # ============================================================
 
 - stage: Cleanup
@@ -666,7 +632,6 @@ stages:
     )
 
   jobs:
-
     - job: CleanupTerraform
       displayName: Terraform Destroy Failed Deployment
 
@@ -715,7 +680,7 @@ stages:
               cd "$(terraformWorkingDirectory)"
 
               echo "=========================================="
-              echo "Initializing remote Terraform backend"
+              echo "Initializing Remote Terraform Backend"
               echo "=========================================="
 
               terraform init \
@@ -723,7 +688,7 @@ stages:
                 -reconfigure
 
         # ----------------------------------------------------
-        # Destroy Everything Terraform Knows
+        # Destroy Resources
         # ----------------------------------------------------
 
         - task: AzureCLI@2
@@ -737,9 +702,18 @@ stages:
 
               cd "$(terraformWorkingDirectory)"
 
+              export TF_VAR_subscription_id=$(az account show --query id -o tsv)
+
               echo "=========================================="
-              echo "AUTOMATIC CLEANUP"
+              echo "AUTOMATIC TERRAFORM CLEANUP"
               echo "=========================================="
+
+              echo "Subscription ID:"
+              echo "$TF_VAR_subscription_id"
+
+              echo "Reading remote Terraform state..."
+
+              terraform state list || true
 
               echo "Destroying all Terraform-managed resources..."
 
@@ -750,8 +724,3 @@ stages:
               echo "=========================================="
               echo "Cleanup completed"
               echo "=========================================="
-
-
-# ============================================================
-# END
-# ============================================================
