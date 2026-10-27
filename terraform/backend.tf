@@ -4,8 +4,6 @@ terraform {
     storage_account_name = "sretfstateuto9xe"
     container_name       = "tfstate"
     key                  = "sre-assignment-dev.tfstate"
-
-    use_cli          = true
     use_azuread_auth = true
   }
 }

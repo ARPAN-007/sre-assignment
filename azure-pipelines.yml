@@ -4,6 +4,7 @@ trigger:
       - main
 
 pr: none
+
 parameters:
   - name: terraformAction
     displayName: Terraform Action
@@ -71,6 +72,7 @@ stages:
           displayName: Terraform Init
           inputs:
             azureSubscription: $(azureServiceConnection)
+            addSpnToEnvironment: true
             scriptType: bash
             scriptLocation: inlineScript
             inlineScript: |
@@ -78,7 +80,13 @@ stages:
 
               cd "$(terraformWorkingDirectory)"
 
-              echo "Initializing remote Terraform backend..."
+              export ARM_CLIENT_ID="$servicePrincipalId"
+              export ARM_TENANT_ID="$tenantId"
+              export ARM_OIDC_TOKEN="$idToken"
+              export ARM_USE_OIDC=true
+              export ARM_USE_AZUREAD=true
+
+              echo "Initializing Terraform backend..."
 
               terraform init \
                 -input=false \
@@ -106,12 +114,19 @@ stages:
           displayName: Terraform Validate
           inputs:
             azureSubscription: $(azureServiceConnection)
+            addSpnToEnvironment: true
             scriptType: bash
             scriptLocation: inlineScript
             inlineScript: |
               set -e
 
               cd "$(terraformWorkingDirectory)"
+
+              export ARM_CLIENT_ID="$servicePrincipalId"
+              export ARM_TENANT_ID="$tenantId"
+              export ARM_OIDC_TOKEN="$idToken"
+              export ARM_USE_OIDC=true
+              export ARM_USE_AZUREAD=true
 
               export TF_VAR_subscription_id=$(az account show --query id -o tsv)
 
@@ -172,12 +187,19 @@ stages:
           displayName: Terraform Init
           inputs:
             azureSubscription: $(azureServiceConnection)
+            addSpnToEnvironment: true
             scriptType: bash
             scriptLocation: inlineScript
             inlineScript: |
               set -e
 
               cd "$(terraformWorkingDirectory)"
+
+              export ARM_CLIENT_ID="$servicePrincipalId"
+              export ARM_TENANT_ID="$tenantId"
+              export ARM_OIDC_TOKEN="$idToken"
+              export ARM_USE_OIDC=true
+              export ARM_USE_AZUREAD=true
 
               terraform init \
                 -input=false \
@@ -191,6 +213,7 @@ stages:
           displayName: Terraform Plan
           inputs:
             azureSubscription: $(azureServiceConnection)
+            addSpnToEnvironment: true
             scriptType: bash
             scriptLocation: inlineScript
             inlineScript: |
@@ -198,11 +221,22 @@ stages:
 
               cd "$(terraformWorkingDirectory)"
 
+              export ARM_CLIENT_ID="$servicePrincipalId"
+              export ARM_TENANT_ID="$tenantId"
+              export ARM_OIDC_TOKEN="$idToken"
+              export ARM_USE_OIDC=true
+              export ARM_USE_AZUREAD=true
+
               export TF_VAR_subscription_id=$(az account show --query id -o tsv)
 
-              echo "Subscription ID: $TF_VAR_subscription_id"
+              echo "=========================================="
+              echo "Terraform Action"
+              echo "=========================================="
 
-              echo "Terraform action: ${{ parameters.terraformAction }}"
+              echo "${{ parameters.terraformAction }}"
+
+              echo "Subscription ID:"
+              echo "$TF_VAR_subscription_id"
 
               if [ "${{ parameters.terraformAction }}" = "destroy" ]; then
 
@@ -300,12 +334,19 @@ stages:
           displayName: Terraform Init
           inputs:
             azureSubscription: $(azureServiceConnection)
+            addSpnToEnvironment: true
             scriptType: bash
             scriptLocation: inlineScript
             inlineScript: |
               set -e
 
               cd "$(terraformWorkingDirectory)"
+
+              export ARM_CLIENT_ID="$servicePrincipalId"
+              export ARM_TENANT_ID="$tenantId"
+              export ARM_OIDC_TOKEN="$idToken"
+              export ARM_USE_OIDC=true
+              export ARM_USE_AZUREAD=true
 
               terraform init \
                 -input=false \
@@ -319,12 +360,19 @@ stages:
           displayName: Terraform ${{ parameters.terraformAction }}
           inputs:
             azureSubscription: $(azureServiceConnection)
+            addSpnToEnvironment: true
             scriptType: bash
             scriptLocation: inlineScript
             inlineScript: |
               set -e
 
               cd "$(terraformWorkingDirectory)"
+
+              export ARM_CLIENT_ID="$servicePrincipalId"
+              export ARM_TENANT_ID="$tenantId"
+              export ARM_OIDC_TOKEN="$idToken"
+              export ARM_USE_OIDC=true
+              export ARM_USE_AZUREAD=true
 
               export TF_VAR_subscription_id=$(az account show --query id -o tsv)
 
@@ -351,12 +399,19 @@ stages:
           condition: succeeded()
           inputs:
             azureSubscription: $(azureServiceConnection)
+            addSpnToEnvironment: true
             scriptType: bash
             scriptLocation: inlineScript
             inlineScript: |
               set -e
 
               cd "$(terraformWorkingDirectory)"
+
+              export ARM_CLIENT_ID="$servicePrincipalId"
+              export ARM_TENANT_ID="$tenantId"
+              export ARM_OIDC_TOKEN="$idToken"
+              export ARM_USE_OIDC=true
+              export ARM_USE_AZUREAD=true
 
               terraform output
 
@@ -394,6 +449,8 @@ stages:
 
             TERRAFORM_VERSION="$(terraformVersion)"
 
+            echo "Installing Terraform ${TERRAFORM_VERSION}"
+
             curl -fsSL \
               "https://releases.hashicorp.com/terraform/${TERRAFORM_VERSION}/terraform_${TERRAFORM_VERSION}_linux_amd64.zip" \
               -o terraform.zip
@@ -416,12 +473,19 @@ stages:
           displayName: Terraform Init
           inputs:
             azureSubscription: $(azureServiceConnection)
+            addSpnToEnvironment: true
             scriptType: bash
             scriptLocation: inlineScript
             inlineScript: |
               set -e
 
               cd "$(terraformWorkingDirectory)"
+
+              export ARM_CLIENT_ID="$servicePrincipalId"
+              export ARM_TENANT_ID="$tenantId"
+              export ARM_OIDC_TOKEN="$idToken"
+              export ARM_USE_OIDC=true
+              export ARM_USE_AZUREAD=true
 
               terraform init \
                 -input=false \
@@ -435,12 +499,19 @@ stages:
           displayName: Build and Push Docker Image
           inputs:
             azureSubscription: $(azureServiceConnection)
+            addSpnToEnvironment: true
             scriptType: bash
             scriptLocation: inlineScript
             inlineScript: |
               set -e
 
               cd "$(terraformWorkingDirectory)"
+
+              export ARM_CLIENT_ID="$servicePrincipalId"
+              export ARM_TENANT_ID="$tenantId"
+              export ARM_OIDC_TOKEN="$idToken"
+              export ARM_USE_OIDC=true
+              export ARM_USE_AZUREAD=true
 
               export TF_VAR_subscription_id=$(az account show --query id -o tsv)
 
@@ -456,16 +527,23 @@ stages:
 
               cd ..
 
-              echo "Building image:"
+              echo "=========================================="
+              echo "Building Docker Image"
+              echo "=========================================="
+
               echo "$IMAGE"
 
               docker build \
                 -t "$IMAGE" \
                 .
 
-              echo "Pushing image:"
+              echo "=========================================="
+              echo "Pushing Docker Image"
+              echo "=========================================="
 
               docker push "$IMAGE"
+
+              echo "Docker image pushed successfully."
 
 
 # ============================================================
@@ -501,6 +579,8 @@ stages:
 
             TERRAFORM_VERSION="$(terraformVersion)"
 
+            echo "Installing Terraform ${TERRAFORM_VERSION}"
+
             curl -fsSL \
               "https://releases.hashicorp.com/terraform/${TERRAFORM_VERSION}/terraform_${TERRAFORM_VERSION}_linux_amd64.zip" \
               -o terraform.zip
@@ -523,12 +603,19 @@ stages:
           displayName: Terraform Init
           inputs:
             azureSubscription: $(azureServiceConnection)
+            addSpnToEnvironment: true
             scriptType: bash
             scriptLocation: inlineScript
             inlineScript: |
               set -e
 
               cd "$(terraformWorkingDirectory)"
+
+              export ARM_CLIENT_ID="$servicePrincipalId"
+              export ARM_TENANT_ID="$tenantId"
+              export ARM_OIDC_TOKEN="$idToken"
+              export ARM_USE_OIDC=true
+              export ARM_USE_AZUREAD=true
 
               terraform init \
                 -input=false \
@@ -542,12 +629,19 @@ stages:
           displayName: Update Container App
           inputs:
             azureSubscription: $(azureServiceConnection)
+            addSpnToEnvironment: true
             scriptType: bash
             scriptLocation: inlineScript
             inlineScript: |
               set -e
 
               cd "$(terraformWorkingDirectory)"
+
+              export ARM_CLIENT_ID="$servicePrincipalId"
+              export ARM_TENANT_ID="$tenantId"
+              export ARM_OIDC_TOKEN="$idToken"
+              export ARM_USE_OIDC=true
+              export ARM_USE_AZUREAD=true
 
               export TF_VAR_subscription_id=$(az account show --query id -o tsv)
 
@@ -557,9 +651,18 @@ stages:
 
               IMAGE="$ACR_NAME.azurecr.io/sre-api:$(Build.BuildId)"
 
-              echo "Resource Group: $RESOURCE_GROUP"
-              echo "Container App: $CONTAINER_APP"
-              echo "Image: $IMAGE"
+              echo "=========================================="
+              echo "Container App Deployment"
+              echo "=========================================="
+
+              echo "Resource Group:"
+              echo "$RESOURCE_GROUP"
+
+              echo "Container App:"
+              echo "$CONTAINER_APP"
+
+              echo "Image:"
+              echo "$IMAGE"
 
               az containerapp update \
                 --name "$CONTAINER_APP" \
@@ -576,12 +679,19 @@ stages:
           displayName: Get Application URL
           inputs:
             azureSubscription: $(azureServiceConnection)
+            addSpnToEnvironment: true
             scriptType: bash
             scriptLocation: inlineScript
             inlineScript: |
               set -e
 
               cd "$(terraformWorkingDirectory)"
+
+              export ARM_CLIENT_ID="$servicePrincipalId"
+              export ARM_TENANT_ID="$tenantId"
+              export ARM_OIDC_TOKEN="$idToken"
+              export ARM_USE_OIDC=true
+              export ARM_USE_AZUREAD=true
 
               RESOURCE_GROUP=$(terraform output -raw resource_group_name)
               CONTAINER_APP=$(terraform output -raw container_app_name)
@@ -594,25 +704,34 @@ stages:
 
               echo ""
               echo "=========================================="
-              echo "FastAPI Application"
+              echo "FASTAPI APPLICATION"
               echo "=========================================="
+
+              echo "Application:"
               echo "https://$FQDN"
+
               echo ""
+
               echo "Swagger:"
               echo "https://$FQDN/docs"
+
+              echo ""
+
+              echo "Health:"
+              echo "https://$FQDN/"
+
               echo "=========================================="
 
 
 # ============================================================
 # STAGE 6 - AUTOMATIC CLEANUP
 #
-# Runs when:
-# Terraform Apply fails
-# Docker Build/Push fails
-# Container App deployment fails
+# Runs if:
+#   Terraform Apply fails
+#   Docker Build/Push fails
+#   Container App deployment fails
 #
-# Uses REMOTE STATE to destroy resources that were successfully
-# recorded before the failure.
+# Bootstrap resources are NOT destroyed.
 # ============================================================
 
 - stage: Cleanup
@@ -671,12 +790,19 @@ stages:
           displayName: Initialize Remote Backend
           inputs:
             azureSubscription: $(azureServiceConnection)
+            addSpnToEnvironment: true
             scriptType: bash
             scriptLocation: inlineScript
             inlineScript: |
               set -e
 
               cd "$(terraformWorkingDirectory)"
+
+              export ARM_CLIENT_ID="$servicePrincipalId"
+              export ARM_TENANT_ID="$tenantId"
+              export ARM_OIDC_TOKEN="$idToken"
+              export ARM_USE_OIDC=true
+              export ARM_USE_AZUREAD=true
 
               echo "=========================================="
               echo "Initializing Remote Terraform Backend"
@@ -687,19 +813,26 @@ stages:
                 -reconfigure
 
         # ----------------------------------------------------
-        # Destroy Resources
+        # Terraform Destroy
         # ----------------------------------------------------
 
         - task: AzureCLI@2
           displayName: Cleanup Terraform Resources
           inputs:
             azureSubscription: $(azureServiceConnection)
+            addSpnToEnvironment: true
             scriptType: bash
             scriptLocation: inlineScript
             inlineScript: |
               set -e
 
               cd "$(terraformWorkingDirectory)"
+
+              export ARM_CLIENT_ID="$servicePrincipalId"
+              export ARM_TENANT_ID="$tenantId"
+              export ARM_OIDC_TOKEN="$idToken"
+              export ARM_USE_OIDC=true
+              export ARM_USE_AZUREAD=true
 
               export TF_VAR_subscription_id=$(az account show --query id -o tsv)
 
@@ -710,16 +843,18 @@ stages:
               echo "Subscription ID:"
               echo "$TF_VAR_subscription_id"
 
-              echo "Reading remote Terraform state..."
-
+              echo ""
+              echo "Terraform resources currently in state:"
               terraform state list || true
 
-              echo "Destroying all Terraform-managed resources..."
+              echo ""
+              echo "Destroying Terraform-managed application resources..."
 
               terraform destroy \
                 -input=false \
                 -auto-approve
 
+              echo ""
               echo "=========================================="
               echo "Cleanup completed"
               echo "=========================================="
