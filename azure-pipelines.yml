@@ -15,7 +15,7 @@ parameters:
       - destroy
 
 pool:
-  vmImage: ubuntu-latest
+  vmImage: ubuntu-24.04
 
 variables:
   terraformVersion: '1.15.8'
