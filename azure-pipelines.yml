@@ -4,6 +4,7 @@ trigger:
       - main
 
 pr: none
+
 parameters:
   - name: terraformAction
     displayName: Terraform Action
